@@ -4,6 +4,26 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "fastify": "^4.25.2"
+    "@fastify/formbody": "^6.0.0",
+    "@fastify/multipart": "^6.0.0",
+    "@fastify/rate-limit": "^6.0.0",
+    "@types/nodemailer": "^6.4.15",
+    "@upstash/ratelimit": "^2.0.2",
+    "@vercel/blob": "^0.23.4",
+    "@vercel/kv": "^2.0.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.25.2",
+    "node-scp": "^0.0.23",
+    "nodemailer": "^6.9.14",
+    "tsconfig-paths": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "scripts": {
+    "build-app": "tsc -B tsconfig.json",
+    "start": "node dist/index.js"
   }
 }
