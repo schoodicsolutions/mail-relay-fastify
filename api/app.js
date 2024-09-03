@@ -45,28 +45,27 @@ const fetchRemoteConfig = async () => {
                 for (const blob of restBlobs) {
                     await (0, blob_1.del)(blob.url);
                 }
+                config = await (await fetch(mostRecent.url)).json();
             }
-            try {
-                const data = (await client.readFile(remotePath)).toString('utf-8');
-                config = JSON.parse(data);
+            else {
                 try {
-                    await (0, blob_1.put)('mail-relay-config-' + Date.now() + '.json', data, { contentType: 'application/json', access: 'public' });
-                    mostRecent && await (0, blob_1.del)(mostRecent.url);
-                    console.log('Config data loaded from remote server, saved to blob storage');
+                    const data = (await client.readFile(remotePath)).toString('utf-8');
+                    config = JSON.parse(data);
+                    try {
+                        await (0, blob_1.put)('mail-relay-config-' + Date.now() + '.json', data, { contentType: 'application/json', access: 'public' });
+                        console.log('Config data loaded from remote server, saved to blob storage');
+                    }
+                    catch (e) {
+                        console.error("Failed to save config file to blob storage:", e.message ?? 'Unknown error occurred');
+                        process.exit(1);
+                    }
                 }
                 catch (e) {
-                    console.error("Failed to save config file to blob storage:", e.message ?? 'Unknown error occurred');
-                    process.exit(1);
+                    if (!mostRecent) {
+                        console.error("Failed to retrieve config file from remote SSH:", e.message ?? 'Unknown error occurred', e);
+                        process.exit(1);
+                    }
                 }
-            }
-            catch (e) {
-                if (!mostRecent) {
-                    console.error("Failed to retrieve config file from remote SSH:", e.message ?? 'Unknown error occurred', e);
-                    process.exit(1);
-                }
-                const data = await (await fetch(mostRecent.url)).json();
-                console.log('Config data loaded from blob storage');
-                config = data;
             }
             console.log("Config file loaded successfully.");
         }
@@ -130,7 +129,28 @@ const ratelimit = new ratelimit_1.Ratelimit({
     limiter: ratelimit_1.Ratelimit.slidingWindow(5, '1 m')
 });
 exports.app = (0, fastify_1.default)();
-exports.app.addHook("preHandler", async (req, res) => {
+exports.app.options("/submit/:formId", async (request, reply) => {
+    const { success, reset, remaining } = await ratelimit.limit(request.ip + (request.headers['origin'] ?? 'no-origin'));
+    if (!success) {
+        reply.status(429).send({ error: "Rate limit exceeded", remaining, reset });
+        return;
+    }
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    return reply.status(200).send();
+});
+const extractFields = (body, fieldKey) => {
+    const fields = {};
+    for (const [key, value] of Object.entries(body)) {
+        const match = key.substring(0, fieldKey.length + 1) === fieldKey + '[' && key[key.length - 1] === ']';
+        if (match) {
+            fields[key.substring(fieldKey.length + 1, key.length - 1)] = value;
+        }
+    }
+    return fields;
+};
+exports.app.post("/submit/:formId", async (req, res) => {
+    await (0, exports.fetchRemoteConfig)();
     const formId = req.params.formId;
     const form = getConfig().forms[formId];
     if (!form) {
@@ -150,15 +170,7 @@ exports.app.addHook("preHandler", async (req, res) => {
         res.status(429).send({ error: "Rate limit exceeded", remaining, reset });
         return;
     }
-});
-exports.app.post("/submit/:formId", async (req, res) => {
-    const formId = req.params.formId;
-    const form = getConfig().forms[formId];
-    if (!form) {
-        res.status(404).send({ error: "Form not found" });
-        return;
-    }
-    const formFields = form.fieldKey ? req.body[form.fieldKey] : req.body;
+    const formFields = form.fieldKey ? req.body[form.fieldKey] ?? extractFields(req.body, form.fieldKey) : req.body;
     if (!formFields) {
         res.status(400).send({ error: "Invalid form data" });
         return;

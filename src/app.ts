@@ -1,4 +1,4 @@
-import Fastify, { FastifyRequest } from "fastify";
+import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import dotenv from "dotenv";
 import { env } from "process";
 import { kv } from "@vercel/kv"
@@ -70,27 +70,25 @@ export const fetchRemoteConfig = async (): Promise<void> => {
                 for (const blob of restBlobs) {
                     await del(blob.url);
                 }    
-            }
-
-            try {
-                const data = (await client.readFile(remotePath)).toString('utf-8');
-                config = JSON.parse(data) as Config;
+                config = await (await fetch(mostRecent.url)).json();
+            } else {
+                
                 try {
-                    await put('mail-relay-config-' + Date.now() + '.json', data, {contentType: 'application/json', access: 'public'});
-                    mostRecent && await del(mostRecent.url);
-                    console.log('Config data loaded from remote server, saved to blob storage');
+                    const data = (await client.readFile(remotePath)).toString('utf-8');
+                    config = JSON.parse(data) as Config;
+                    try {
+                        await put('mail-relay-config-' + Date.now() + '.json', data, {contentType: 'application/json', access: 'public'});
+                        console.log('Config data loaded from remote server, saved to blob storage');
+                    } catch (e) {
+                        console.error("Failed to save config file to blob storage:", (e as any).message ?? 'Unknown error occurred');
+                        process.exit(1);
+                    }
                 } catch (e) {
-                    console.error("Failed to save config file to blob storage:", (e as any).message ?? 'Unknown error occurred');
-                    process.exit(1);
+                    if (!mostRecent) {
+                        console.error("Failed to retrieve config file from remote SSH:", (e as any).message ?? 'Unknown error occurred', e);
+                        process.exit(1);
+                    }
                 }
-            } catch (e) {
-                if (!mostRecent) {
-                    console.error("Failed to retrieve config file from remote SSH:", (e as any).message ?? 'Unknown error occurred', e);
-                    process.exit(1);
-                }
-                const data: Config = await (await fetch(mostRecent.url)).json();
-                console.log('Config data loaded from blob storage');
-                config = data;
             }
 
             console.log("Config file loaded successfully.");
@@ -162,7 +160,36 @@ export const app = Fastify();
 
 //app.register(multipart);
 
-app.addHook("preHandler", async (req: FastifyRequest<{ Params: { formId: string }}>, res) => {
+app.options("/submit/:formId", async (request: FastifyRequest, reply: FastifyReply) => {
+    const { success, reset, remaining } = await ratelimit.limit(
+        request.ip + (request.headers['origin'] ?? 'no-origin'),
+    )
+
+    if (!success) {
+        reply.status(429).send({ error: "Rate limit exceeded", remaining, reset });
+        return;
+    }
+
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+    return reply.status(200).send();
+});
+
+const extractFields = (body: Record<string, any>, fieldKey: string) => {
+    const fields: Record<string, any> = {};
+
+    for (const [key, value] of Object.entries(body)) {
+        const match = key.substring(0, fieldKey.length + 1) === fieldKey + '[' && key[key.length - 1] === ']';
+        if (match) {
+            fields[key.substring(fieldKey.length + 1, key.length - 1)] = value;
+        }
+    }
+
+    return fields;
+}
+app.post("/submit/:formId", async (req: FastifyRequest<{ Params: { formId: string }, Body: Record<string, any>}>, res) => {
+    await fetchRemoteConfig();
+
     const formId = req.params.formId;
     const form = getConfig().forms[formId];
 
@@ -188,19 +215,7 @@ app.addHook("preHandler", async (req: FastifyRequest<{ Params: { formId: string 
         return;
     }
 
-    
-});
-
-app.post("/submit/:formId", async (req: FastifyRequest<{ Params: { formId: string }, Body: Record<string, any>}>, res) => {
-    const formId = req.params.formId;
-    const form = getConfig().forms[formId];
-
-    if (!form) {
-        res.status(404).send({ error: "Form not found" });
-        return;
-    }
-
-    const formFields = form.fieldKey ? req.body[form.fieldKey] : req.body;
+    const formFields = form.fieldKey ? req.body[form.fieldKey] ?? extractFields(req.body, form.fieldKey) : req.body;
 
     if (!formFields) {
         res.status(400).send({ error: "Invalid form data" });
