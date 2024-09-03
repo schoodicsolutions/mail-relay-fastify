@@ -40,12 +40,6 @@ export const fetchRemoteConfig = async (): Promise<void> => {
     if (env.JSON_CONFIG_SSH_PATH && env.JSON_CONFIG_SSH_KEY) {
         const privateKey = Buffer.from(env.JSON_CONFIG_SSH_KEY, 'base64').toString('utf-8');
 
-        const host = env.JSON_CONFIG_SSH_PATH.split("@")[1].split(":")[0];
-        const port = env.JSON_CONFIG_SSH_PORT ?? "22";
-
-        console.log(host, port);
-
-
         const client = await Client({
             host: env.JSON_CONFIG_SSH_PATH.split("@")[1].split(":")[0],
             port: env.JSON_CONFIG_SSH_PORT ?? "22",
@@ -180,13 +174,14 @@ app.addHook("preHandler", async (req: FastifyRequest<{ Params: { formId: string 
     if (form.validOrigin.includes(req.headers.origin!)) {
         res.header('Access-Control-Allow-Origin', req.headers.origin!);
         res.header('Access-Control-Allow-Headers', 'Content-Type');
+    } else {
+        res.status(403).send({ error: "Invalid origin" });
+        return;
     }
 
     const { success, reset, remaining } = await ratelimit.limit(
         req.ip + (req.headers['origin'] ?? 'no-origin'),
     )
-
-    console.log(`Rate limit: ${success}, remaining: ${remaining}, reset: ${reset}`);
 
     if (!success) {
         res.status(429).send({ error: "Rate limit exceeded", remaining, reset });

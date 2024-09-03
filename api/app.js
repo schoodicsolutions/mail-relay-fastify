@@ -20,9 +20,6 @@ function getConfig() {
 const fetchRemoteConfig = async () => {
     if (process_1.env.JSON_CONFIG_SSH_PATH && process_1.env.JSON_CONFIG_SSH_KEY) {
         const privateKey = Buffer.from(process_1.env.JSON_CONFIG_SSH_KEY, 'base64').toString('utf-8');
-        const host = process_1.env.JSON_CONFIG_SSH_PATH.split("@")[1].split(":")[0];
-        const port = process_1.env.JSON_CONFIG_SSH_PORT ?? "22";
-        console.log(host, port);
         const client = await (0, node_scp_1.Client)({
             host: process_1.env.JSON_CONFIG_SSH_PATH.split("@")[1].split(":")[0],
             port: process_1.env.JSON_CONFIG_SSH_PORT ?? "22",
@@ -144,8 +141,11 @@ exports.app.addHook("preHandler", async (req, res) => {
         res.header('Access-Control-Allow-Origin', req.headers.origin);
         res.header('Access-Control-Allow-Headers', 'Content-Type');
     }
+    else {
+        res.status(403).send({ error: "Invalid origin" });
+        return;
+    }
     const { success, reset, remaining } = await ratelimit.limit(req.ip + (req.headers['origin'] ?? 'no-origin'));
-    console.log(`Rate limit: ${success}, remaining: ${remaining}, reset: ${reset}`);
     if (!success) {
         res.status(429).send({ error: "Rate limit exceeded", remaining, reset });
         return;
