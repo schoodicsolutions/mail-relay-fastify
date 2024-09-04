@@ -3,138 +3,37 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.app = exports.fetchRemoteConfig = void 0;
+exports.app = void 0;
 const fastify_1 = __importDefault(require("fastify"));
-const dotenv_1 = __importDefault(require("dotenv"));
+const multipart_1 = __importDefault(require("@fastify/multipart"));
+const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const process_1 = require("process");
 const kv_1 = require("@vercel/kv");
-const blob_1 = require("@vercel/blob");
 const ratelimit_1 = require("@upstash/ratelimit");
-const nodemailer_1 = require("nodemailer");
-const node_scp_1 = require("node-scp");
-dotenv_1.default.config();
-let config;
-function getConfig() {
-    return config;
-}
-const fetchRemoteConfig = async () => {
-    if (process_1.env.JSON_CONFIG_SSH_PATH && process_1.env.JSON_CONFIG_SSH_KEY) {
-        const privateKey = Buffer.from(process_1.env.JSON_CONFIG_SSH_KEY, 'base64').toString('utf-8');
-        const client = await (0, node_scp_1.Client)({
-            host: process_1.env.JSON_CONFIG_SSH_PATH.split("@")[1].split(":")[0],
-            port: process_1.env.JSON_CONFIG_SSH_PORT ?? "22",
-            username: process_1.env.JSON_CONFIG_SSH_PATH.split("@")[0],
-            privateKey: privateKey,
-        });
-        const remotePath = process_1.env.JSON_CONFIG_SSH_PATH.split(":")[1];
-        try {
-            let allBlobs = [];
-            let { blobs, hasMore, cursor } = await (0, blob_1.list)();
-            allBlobs.push(...blobs);
-            while (hasMore) {
-                const listResult = await (0, blob_1.list)({
-                    cursor,
-                });
-                allBlobs.push(...listResult.blobs);
-                hasMore = listResult.hasMore;
-                cursor = listResult.cursor;
-            }
-            const mostRecent = blobs.length ? blobs.reduce((a, b) => a.uploadedAt > b.uploadedAt ? a : b) : null;
-            if (mostRecent) {
-                const restBlobs = blobs.filter(blob => blob.url !== mostRecent.url);
-                for (const blob of restBlobs) {
-                    await (0, blob_1.del)(blob.url);
-                }
-                config = await (await fetch(mostRecent.url)).json();
-            }
-            else {
-                try {
-                    const data = (await client.readFile(remotePath)).toString('utf-8');
-                    config = JSON.parse(data);
-                    try {
-                        await (0, blob_1.put)('mail-relay-config-' + Date.now() + '.json', data, { contentType: 'application/json', access: 'public' });
-                        console.log('Config data loaded from remote server, saved to blob storage');
-                    }
-                    catch (e) {
-                        console.error("Failed to save config file to blob storage:", e.message ?? 'Unknown error occurred');
-                        process.exit(1);
-                    }
-                }
-                catch (e) {
-                    if (!mostRecent) {
-                        console.error("Failed to retrieve config file from remote SSH:", e.message ?? 'Unknown error occurred', e);
-                        process.exit(1);
-                    }
-                }
-            }
-            console.log("Config file loaded successfully.");
-        }
-        catch (error) {
-            console.error("Error communicating with Vercel Blob:", error.message ?? 'Unknown error occurred');
-            process.exit(1);
-        }
-        finally {
-            client.close();
-        }
-    }
-    else {
-        console.error("Config must be pulled intially from remote server. Please set env vars JSON_CONFIG_SSH_PATH and JSON_CONFIG_SSH_KEY.");
-        process.exit(1);
-    }
-};
-exports.fetchRemoteConfig = fetchRemoteConfig;
-const sendMailPromise = (mailOptions) => {
-    if (!process_1.env.SMTP_SERVER)
-        throw new Error("SMTP_SERVER is not defined");
-    if (!process_1.env.SMTP_FROM)
-        throw new Error("SMTP_FROM is not defined");
-    if (!process_1.env.SMTP_PORT)
-        throw new Error("SMTP_PORT is not defined");
-    if (!process_1.env.SMTP_USERNAME)
-        throw new Error("SMTP_USERNAME is not defined");
-    if (!process_1.env.SMTP_PASSWORD)
-        throw new Error("SMTP_PASSWORD is not defined");
-    const transport = (0, nodemailer_1.createTransport)({
-        host: process_1.env.SMTP_SERVER,
-        port: Number(process_1.env.SMTP_PORT),
-        authMethod: 'LOGIN',
-        auth: {
-            user: process_1.env.SMTP_USERNAME,
-            pass: process_1.env.SMTP_PASSWORD,
-        }
-    });
-    return new Promise((resolve, reject) => {
-        transport.sendMail(mailOptions, (err, info) => {
-            if (err)
-                reject(err);
-            resolve(info);
-        });
-    });
-};
-const validateCaptcha = (token) => {
-    if (!process_1.env.HCAPTCHA_SECRET_KEY)
-        throw new Error("HCAPTCHA_SECRET_KEY is not defined");
-    if (!process_1.env.HCAPTCHA_VERIFY_API)
-        throw new Error("HCAPTCHA_VERIFY_API is not defined");
-    const hcaptchaBody = new FormData();
-    hcaptchaBody.append('secret', process_1.env.HCAPTCHA_SECRET_KEY);
-    hcaptchaBody.append('response', token);
-    return fetch(process_1.env.HCAPTCHA_VERIFY_API, {
-        method: 'POST',
-        body: hcaptchaBody,
-    }).then(res => res.json());
-};
+const config_1 = require("./config");
+const mail_1 = require("./util/mail");
+const captcha_1 = require("./util/captcha");
+const validation_1 = require("./util/validation");
 const ratelimit = new ratelimit_1.Ratelimit({
     redis: kv_1.kv,
-    limiter: ratelimit_1.Ratelimit.slidingWindow(5, '1 m')
+    limiter: ratelimit_1.Ratelimit.slidingWindow(5, '10 s')
 });
 exports.app = (0, fastify_1.default)();
-exports.app.options("/submit/:formId", async (request, reply) => {
-    const { success, reset, remaining } = await ratelimit.limit(request.ip + (request.headers['origin'] ?? 'no-origin'));
+exports.app.register(multipart_1.default, { attachFieldsToBody: true });
+exports.app.addHook("onRequest", async (request, reply) => {
+    const { success } = await ratelimit.limit(request.ip + (request.headers['origin'] ?? 'no-origin'));
     if (!success) {
-        reply.status(429).send({ error: "Rate limit exceeded", remaining, reset });
+        const response = {
+            success: false,
+            data: {
+                message: "Rate limit exceeded. Please try again later.",
+            }
+        };
+        reply.status(429).send(response);
         return;
     }
+});
+exports.app.options("/submit/:formId", async (_, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
     return reply.status(200).send();
@@ -150,11 +49,17 @@ const extractFields = (body, fieldKey) => {
     return fields;
 };
 exports.app.post("/submit/:formId", async (req, res) => {
-    await (0, exports.fetchRemoteConfig)();
+    await (0, config_1.fetchRemoteConfig)();
     const formId = req.params.formId;
-    const form = getConfig().forms[formId];
+    const form = (0, config_1.getConfig)().forms[formId];
     if (!form) {
-        res.status(404).send({ error: "Form not found" });
+        const response = {
+            success: false,
+            data: {
+                message: "The form you're trying to submit wasn't found.",
+            }
+        };
+        res.status(404).send(response);
         return;
     }
     if (form.validOrigin.includes(req.headers.origin)) {
@@ -162,46 +67,83 @@ exports.app.post("/submit/:formId", async (req, res) => {
         res.header('Access-Control-Allow-Headers', 'Content-Type');
     }
     else {
-        res.status(403).send({ error: "Invalid origin" });
+        const response = {
+            success: false,
+            data: {
+                message: "Invalid origin.",
+            }
+        };
+        res.status(403).send(response);
         return;
     }
-    const { success, reset, remaining } = await ratelimit.limit(req.ip + (req.headers['origin'] ?? 'no-origin'));
-    if (!success) {
-        res.status(429).send({ error: "Rate limit exceeded", remaining, reset });
+    const body = Object.fromEntries(Object.keys(req.body).map((key) => [key, req.body[key].value]));
+    const formFields = form.fieldKey ? body[form.fieldKey] ?? extractFields(body, form.fieldKey) : req.body;
+    if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
+        const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
+        const response = {
+            "success": false,
+            "data": {
+                "message": "Your submission failed because of an error.",
+                "errors": Object.fromEntries(requiredFields.map(name => [name, "This field is required."])),
+            }
+        };
+        res.status(400).send(response);
         return;
     }
-    const formFields = form.fieldKey ? req.body[form.fieldKey] ?? extractFields(req.body, form.fieldKey) : req.body;
-    if (!formFields) {
-        res.status(400).send({ error: "Invalid form data" });
+    const errors = {};
+    for (const [name, field] of Object.entries(form.fields)) {
+        if (field.required && (!formFields[name] || formFields[name].toString().trim() === '')) {
+            errors[name] = "This field is required.";
+        }
+        const { valid, message } = (0, validation_1.validateField)(field, formFields[name]);
+        if (!valid) {
+            errors[name] = message ?? 'Invalid field value';
+        }
+    }
+    if (Object.keys(errors).length > 0) {
+        const response = {
+            "success": false,
+            "data": {
+                "message": "Your submission failed because of an error.",
+                "errors": errors,
+            }
+        };
+        res.status(400).send(response);
         return;
     }
-    if (Object.entries(form.fields).some(([name, field]) => field.required && !formFields[name])) {
-        res.status(400).send({ error: "Required fields missing" });
-        return;
+    if (Object.keys(formFields).some((name) => !form.fields[name])) {
+        const response = {
+            "success": false,
+            "data": {
+                "message": "Your submission failed because of an error.",
+            }
+        };
+        res.status(400).send(response);
     }
     if (process_1.env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
-        const result = await validateCaptcha(token);
+        const result = await (0, captcha_1.validateCaptcha)(token);
         if (!result.success) {
             res.status(400).send({ error: "Invalid captcha" });
             return;
         }
     }
     const html = Object.entries(formFields).map(([key, value]) => {
+        const cleanValue = typeof value === 'string' ? (0, sanitize_html_1.default)(value) : value?.toString ? (0, sanitize_html_1.default)(value.toString()) : '<invalid value>';
         if (key === 'message') {
-            return `<br><br>${value}`;
+            return `<br><b>${key[0].toUpperCase() + key.slice(1)}</b>:<br> ${cleanValue}<br>`;
         }
         else {
-            return `<b>${key[0].toUpperCase() + key.slice(1)}</b>: ${value}<br>`;
+            return `<b>${key[0].toUpperCase() + key.slice(1)}</b>: ${cleanValue}<br>`;
         }
     }).join('\n');
     const fromName = formFields.name?.toString() || 'Contact Form';
     const replyToAddress = formFields.email?.toString() || process_1.env.SMTP_FROM;
     try {
-        await sendMailPromise({
+        await (0, mail_1.sendMailPromise)({
             from: `${fromName} <${process_1.env.SMTP_FROM}>`,
             to: form.recipient ?? process_1.env.SMTP_RCPT,
-            subject: process_1.env.SMTP_SUBJECT,
+            subject: form.subject ?? process_1.env.SMTP_SUBJECT,
             headers: {
                 'Reply-To': `${fromName} <${replyToAddress}>`,
             },
