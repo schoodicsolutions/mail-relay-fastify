@@ -40,6 +40,7 @@ app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) =>
             success: false,
             data: {
                 message: "Rate limit exceeded. Please try again later.",
+                data: [],
             }
         };
         reply.status(429).send(response);
@@ -77,13 +78,23 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
             success: false,
             data: {
                 message: "The form you're trying to submit wasn't found.",
+                data: [],
             }
         }
         res.status(404).send(response);
         return;
     }
 
-    if (form.validOrigin.includes(req.headers.origin!)) {
+    if (typeof form.validOrigin === 'string') form.validOrigin = [form.validOrigin];
+    let origins: string[] = [];
+
+    if (req.headers.origin?.includes(',')) {
+        origins = req.headers.origin.split(',').map(v => v.trim());
+    } else if (req.headers.origin) {
+        origins = [req.headers.origin];
+    }
+    
+    if (form.validOrigin.some(validOrigin => origins.includes(validOrigin))) {
         res.header('Access-Control-Allow-Origin', req.headers.origin!);
         res.header('Access-Control-Allow-Headers', 'Content-Type');
     } else {
@@ -91,6 +102,7 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
             success: false,
             data: {
                 message: "Invalid origin.",
+                data: [],
             }
         }
         res.status(403).send(response);
@@ -106,10 +118,11 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
     if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
         const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
         const response: FormSubmissionResponse = {
-            "success": false,
-            "data": {
-                "message": "Your submission failed because of an error.",
-                "errors": Object.fromEntries(requiredFields.map(name => [name, "This field is required."])),
+            success: false,
+            data: {
+                message: "Your submission failed because of an error.",
+                errors: Object.fromEntries(requiredFields.map(name => [name, "This field is required."])),
+                data: [],
             }
         }
         res.status(400).send(response);
@@ -130,10 +143,11 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
 
     if (Object.keys(errors).length > 0) {
         const response: FormSubmissionResponse = {
-            "success": false,
-            "data": {
-                "message": "Your submission failed because of an error.",
-                "errors": errors,
+            success: false,
+            data: {
+                message: "Your submission failed because of an error.",
+                errors: errors,
+                data: [],
             }
         }
         res.status(400).send(response);
