@@ -30,14 +30,14 @@ exports.app.addHook("onRequest", async (request, reply) => {
                 data: [],
             }
         };
-        reply.status(429).send(response);
+        reply.send(response);
         return;
     }
 });
 exports.app.options("/submit/:formId", async (_, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
-    return reply.status(200).send();
+    return reply.send();
 });
 const extractFields = (body, fieldKey) => {
     const fields = {};
@@ -61,7 +61,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
                 data: [],
             }
         };
-        res.status(404).send(response);
+        res.send(response);
         return;
     }
     if (typeof form.validOrigin === 'string')
@@ -85,7 +85,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
                 data: [],
             }
         };
-        res.status(403).send(response);
+        res.send(response);
         return;
     }
     const body = Object.fromEntries(Object.keys(req.body).map((key) => [key, req.body[key].value]));
@@ -100,7 +100,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
                 data: [],
             }
         };
-        res.status(400).send(response);
+        res.send(response);
         return;
     }
     const errors = {};
@@ -122,7 +122,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
                 data: [],
             }
         };
-        res.status(400).send(response);
+        res.send(response);
         return;
     }
     if (Object.keys(formFields).some((name) => !form.fields[name])) {
@@ -132,13 +132,13 @@ exports.app.post("/submit/:formId", async (req, res) => {
                 "message": "Your submission failed because of an error.",
             }
         };
-        res.status(400).send(response);
+        res.send(response);
     }
     if (process_1.env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
         const result = await (0, captcha_1.validateCaptcha)(token);
         if (!result.success) {
-            res.status(400).send({ error: "Invalid captcha" });
+            res.send({ error: "Invalid captcha" });
             return;
         }
     }
@@ -163,13 +163,13 @@ exports.app.post("/submit/:formId", async (req, res) => {
             },
             html,
         });
-        res.status(200).send({ success: true, message: form.successMessage });
+        res.send({ success: true, message: form.successMessage });
     }
     catch (e) {
         console.error(e);
-        res.status(500).send({ success: false, message: form.errorMessage });
+        res.send({ success: false, message: form.errorMessage });
     }
 });
 exports.app.get('/', async (_, res) => {
-    return res.status(200).type('text/html').send('Schoodic Mailer / powered by Fastify');
+    return res.type('text/html').send('Schoodic Mailer / powered by Fastify');
 });
