@@ -7,11 +7,13 @@ import { env } from "process";
 import { kv } from "@vercel/kv"
 import { Ratelimit } from '@upstash/ratelimit';
 
-import { fetchRemoteConfig, getConfig } from "./config";
+import { fetchRemoteConfig, FormModes, getConfig } from "./config";
 import { sendMailPromise } from "./util/mail";
 import { validateCaptcha } from "./util/captcha";
 import { validateField } from "./util/validation";
-
+import { extractFields } from "./util/extract";
+import { FormModeDefinition } from "./types/form-mode-definition";
+import { GENERIC_FROM_NAME, INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "./strings";
 
 interface FormSubmissionResponse {
     success: boolean;
@@ -54,24 +56,11 @@ app.options("/submit/:formId", async (_, reply: FastifyReply) => {
     return reply.send();
 });
 
-const extractFields = (body: Record<string, any>, fieldKey: string) => {
-    const fields: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(body)) {
-        const match = key.substring(0, fieldKey.length + 1) === fieldKey + '[' && key[key.length - 1] === ']';
-        if (match) {
-            fields[key.substring(fieldKey.length + 1, key.length - 1)] = value;
-        }
-    }
-
-    return fields;
-}
 
 app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:formId", async (req, res) => {
     await fetchRemoteConfig();
 
-    const formId = req.params.formId;
-    const form = getConfig().forms[formId];
+    const form = getConfig().forms[req.params.formId];
 
     if (!form) {
         const response = {
@@ -112,19 +101,19 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
     const body = Object.fromEntries(
       Object.keys(req.body).map((key) => [key, req.body[key].value])
     )
-  
-    const formFields = form.fieldKey ? body[form.fieldKey] ?? extractFields(body, form.fieldKey) : req.body;
+
+    form.mode = form.mode && FormModes.includes(form.mode) ? form.mode : 'generic';
+    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`) as FormModeDefinition;
+
+    const fieldKey = preferences?.fieldKey ?? form.fieldKey;
+
+    const formFields: Record<string, any> = fieldKey ? body[fieldKey] ?? extractFields(body, fieldKey) : req.body;
 
     if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
         const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
-        const response: FormSubmissionResponse = {
-            success: false,
-            data: {
-                message: "Your submission failed because of an error.",
-                errors: Object.fromEntries(requiredFields.map(name => [name, "This field is required."])),
-                data: [],
-            }
-        }
+        const errors = Object.fromEntries(requiredFields.map(name => [name, REQUIRED_FIELD_ERROR]));
+
+        const response = formInvalidResponse(null, errors);
         res.send(response);
         return;
     }
@@ -137,30 +126,18 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
 
         const { valid, message } = validateField(field, formFields[name]);
         if (!valid) {
-            errors[name] = message ?? 'Invalid field value';
+            errors[name] = message ?? INVALID_FIELD_ERROR;
         }
     }
 
     if (Object.keys(errors).length > 0) {
-        const response: FormSubmissionResponse = {
-            success: false,
-            data: {
-                message: "Your submission failed because of an error.",
-                errors: errors,
-                data: [],
-            }
-        }
+        const response = formInvalidResponse(null, errors);
         res.send(response);
         return;
     }
 
     if (Object.keys(formFields).some((name) => !form.fields[name])) {
-        const response: FormSubmissionResponse = {
-            "success": false,
-            "data": {
-                "message": "Your submission failed because of an error.",
-            }
-        }
+        const response = formInvalidResponse(form.errorMessage);
         res.send(response);
     }
 
@@ -169,7 +146,8 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
 
         const result = await validateCaptcha(token);
         if (!result.success) {
-            res.send({ error: "Invalid captcha" });
+            const response = formInvalidResponse();
+            res.send(response);
             return;
         }
     }
@@ -185,8 +163,11 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
         }
     ).join('\n');
 
-    const fromName = formFields.name?.toString() || 'Contact Form';
-    const replyToAddress = formFields.email?.toString() || env.SMTP_FROM!;
+    const nameFieldKey: string = Object.entries(form.fields).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
+    const emailFieldKey: string = Object.entries(form.fields).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
+
+    const fromName = formFields.name ?? formFields[nameFieldKey] ?? GENERIC_FROM_NAME;
+    const replyToAddress = formFields.email ?? formFields[emailFieldKey] ?? env.SMTP_FROM!;
 
     try {
         await sendMailPromise({
@@ -203,10 +184,10 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
             // }] : undefined,
         });
 
-        res.send({ success: true, message: form.successMessage });
+        res.send(formSuccessResponse(form.successMessage));
     } catch (e: unknown) {
         console.error(e);
-        res.send({ success: false, message: form.errorMessage });
+        res.send(formCriticalFailureResponse(form.errorMessage));
     }
 });
 

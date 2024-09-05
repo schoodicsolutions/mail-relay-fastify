@@ -14,6 +14,8 @@ const config_1 = require("./config");
 const mail_1 = require("./util/mail");
 const captcha_1 = require("./util/captcha");
 const validation_1 = require("./util/validation");
+const extract_1 = require("./util/extract");
+const strings_1 = require("./strings");
 const ratelimit = new ratelimit_1.Ratelimit({
     redis: kv_1.kv,
     limiter: ratelimit_1.Ratelimit.slidingWindow(5, '10 s')
@@ -39,20 +41,9 @@ exports.app.options("/submit/:formId", async (_, reply) => {
     reply.header('Access-Control-Allow-Headers', 'Content-Type');
     return reply.send();
 });
-const extractFields = (body, fieldKey) => {
-    const fields = {};
-    for (const [key, value] of Object.entries(body)) {
-        const match = key.substring(0, fieldKey.length + 1) === fieldKey + '[' && key[key.length - 1] === ']';
-        if (match) {
-            fields[key.substring(fieldKey.length + 1, key.length - 1)] = value;
-        }
-    }
-    return fields;
-};
 exports.app.post("/submit/:formId", async (req, res) => {
     await (0, config_1.fetchRemoteConfig)();
-    const formId = req.params.formId;
-    const form = (0, config_1.getConfig)().forms[formId];
+    const form = (0, config_1.getConfig)().forms[req.params.formId];
     if (!form) {
         const response = {
             success: false,
@@ -89,17 +80,14 @@ exports.app.post("/submit/:formId", async (req, res) => {
         return;
     }
     const body = Object.fromEntries(Object.keys(req.body).map((key) => [key, req.body[key].value]));
-    const formFields = form.fieldKey ? body[form.fieldKey] ?? extractFields(body, form.fieldKey) : req.body;
+    form.mode = form.mode && config_1.FormModes.includes(form.mode) ? form.mode : 'generic';
+    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`);
+    const { fieldKey } = { ...form, ...preferences };
+    const formFields = fieldKey ? body[fieldKey] ?? (0, extract_1.extractFields)(body, fieldKey) : req.body;
     if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
         const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
-        const response = {
-            success: false,
-            data: {
-                message: "Your submission failed because of an error.",
-                errors: Object.fromEntries(requiredFields.map(name => [name, "This field is required."])),
-                data: [],
-            }
-        };
+        const errors = Object.fromEntries(requiredFields.map(name => [name, strings_1.REQUIRED_FIELD_ERROR]));
+        const response = formInvalidResponse(null, errors);
         res.send(response);
         return;
     }
@@ -110,35 +98,24 @@ exports.app.post("/submit/:formId", async (req, res) => {
         }
         const { valid, message } = (0, validation_1.validateField)(field, formFields[name]);
         if (!valid) {
-            errors[name] = message ?? 'Invalid field value';
+            errors[name] = message ?? strings_1.INVALID_FIELD_ERROR;
         }
     }
     if (Object.keys(errors).length > 0) {
-        const response = {
-            success: false,
-            data: {
-                message: "Your submission failed because of an error.",
-                errors: errors,
-                data: [],
-            }
-        };
+        const response = formInvalidResponse(null, errors);
         res.send(response);
         return;
     }
     if (Object.keys(formFields).some((name) => !form.fields[name])) {
-        const response = {
-            "success": false,
-            "data": {
-                "message": "Your submission failed because of an error.",
-            }
-        };
+        const response = formInvalidResponse(form.errorMessage);
         res.send(response);
     }
     if (process_1.env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
         const result = await (0, captcha_1.validateCaptcha)(token);
         if (!result.success) {
-            res.send({ error: "Invalid captcha" });
+            const response = formInvalidResponse();
+            res.send(response);
             return;
         }
     }
@@ -151,8 +128,10 @@ exports.app.post("/submit/:formId", async (req, res) => {
             return `<b>${key[0].toUpperCase() + key.slice(1)}</b>: ${cleanValue}<br>`;
         }
     }).join('\n');
-    const fromName = formFields.name?.toString() || 'Contact Form';
-    const replyToAddress = formFields.email?.toString() || process_1.env.SMTP_FROM;
+    const nameFieldKey = Object.entries(form.fields).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
+    const emailFieldKey = Object.entries(form.fields).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
+    const fromName = formFields.name ?? formFields[nameFieldKey] ?? strings_1.GENERIC_FROM_NAME;
+    const replyToAddress = formFields.email ?? formFields[emailFieldKey] ?? process_1.env.SMTP_FROM;
     try {
         await (0, mail_1.sendMailPromise)({
             from: `${fromName} <${process_1.env.SMTP_FROM}>`,
@@ -163,11 +142,11 @@ exports.app.post("/submit/:formId", async (req, res) => {
             },
             html,
         });
-        res.send({ success: true, message: form.successMessage });
+        res.send(formSuccessResponse(form.successMessage));
     }
     catch (e) {
         console.error(e);
-        res.send({ success: false, message: form.errorMessage });
+        res.send(formCriticalFailureResponse(form.errorMessage));
     }
 });
 exports.app.get('/', async (_, res) => {
