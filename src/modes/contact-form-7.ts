@@ -1,5 +1,5 @@
-import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION, VALIDATION_ERROR } from "@/strings";
-import { SubmissionResponse } from "@/types/submission-response";
+import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION, VALIDATION_ERROR } from "../local/strings";
+import { SubmissionResponse } from "../types/submission-response";
 
 interface ContactForm7InvalidField {
     field: string,

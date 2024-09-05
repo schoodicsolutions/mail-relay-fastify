@@ -1,5 +1,5 @@
-import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION } from "@/strings";
-import { SubmissionResponse } from "@/types/submission-response";
+import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION } from "../local/strings";
+import { SubmissionResponse } from "../types/submission-response";
 
 interface GenericSubmissionResponse extends SubmissionResponse {
     data: {

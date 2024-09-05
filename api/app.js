@@ -15,7 +15,7 @@ const mail_1 = require("./util/mail");
 const captcha_1 = require("./util/captcha");
 const validation_1 = require("./util/validation");
 const extract_1 = require("./util/extract");
-const strings_1 = require("./strings");
+const strings_1 = require("./local/strings");
 const ratelimit = new ratelimit_1.Ratelimit({
     redis: kv_1.kv,
     limiter: ratelimit_1.Ratelimit.slidingWindow(5, '10 s')
@@ -82,7 +82,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
     const body = Object.fromEntries(Object.keys(req.body).map((key) => [key, req.body[key].value]));
     form.mode = form.mode && config_1.FormModes.includes(form.mode) ? form.mode : 'generic';
     let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`);
-    const { fieldKey } = { ...form, ...preferences };
+    const fieldKey = preferences?.fieldKey ?? form.fieldKey;
     const formFields = fieldKey ? body[fieldKey] ?? (0, extract_1.extractFields)(body, fieldKey) : req.body;
     if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
         const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);

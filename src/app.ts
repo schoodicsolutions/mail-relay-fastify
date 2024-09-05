@@ -13,7 +13,7 @@ import { validateCaptcha } from "./util/captcha";
 import { validateField } from "./util/validation";
 import { extractFields } from "./util/extract";
 import { FormModeDefinition } from "./types/form-mode-definition";
-import { GENERIC_FROM_NAME, INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "./strings";
+import { GENERIC_FROM_NAME, INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "./local/strings";
 
 interface FormSubmissionResponse {
     success: boolean;

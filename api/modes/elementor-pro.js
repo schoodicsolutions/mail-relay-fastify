@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formCriticalFailureResponse = exports.formSuccessResponse = exports.formInvalidResponse = exports.getFormIdentifier = exports.preferences = void 0;
-const strings_1 = require("@/strings");
+const strings_1 = require("../local/strings");
 exports.preferences = {
     fieldKey: "form_fields"
 };

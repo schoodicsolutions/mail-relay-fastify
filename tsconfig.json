@@ -27,7 +27,8 @@
       "@models/*": ["src/models/*"],
       "@services/*": ["src/services/*"],
       "@types/*": ["src/types/*"],
-      "@utils/*": ["src/utils/*"]
+      "@utils/*": ["src/utils/*"],
+      "@strings/*": ["src/local/*"],
     }
   },
   "include": ["src"],

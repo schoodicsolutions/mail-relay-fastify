@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.GENERIC_FROM_NAME = exports.INVALID_FIELD_ERROR = exports.FIELD_TOO_LONG_ERROR = exports.FAILED_SUBMISSION = exports.VALIDATION_ERROR = exports.REQUIRED_FIELD_ERROR = exports.SUCCESSFUL_SUBMISSION = void 0;
+exports.SUCCESSFUL_SUBMISSION = "Your submission was successful.";
+exports.REQUIRED_FIELD_ERROR = "This field is required.";
+exports.VALIDATION_ERROR = "One or more fields have an error. Please check and try again.";
+exports.FAILED_SUBMISSION = "Your submission failed because of an error.";
+exports.FIELD_TOO_LONG_ERROR = "This field must be at most %d characters long.";
+exports.INVALID_FIELD_ERROR = "This field is invalid.";
+exports.GENERIC_FROM_NAME = "Contact Form Submission";

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.formCriticalFailureResponse = exports.formSuccessResponse = exports.formInvalidResponse = void 0;
-const strings_1 = require("@/strings");
+const strings_1 = require("../local/strings");
 const formInvalidResponse = (message, errors) => ({
     code: 200,
     data: {
