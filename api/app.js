@@ -92,10 +92,6 @@ exports.app.post("/submit/:formId", async (req, res) => {
         res.status(code).send(data);
         return;
     }
-    if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
-        const { code, data } = formInvalidResponse(form.errorMessage);
-        res.status(code).send(data);
-    }
     if (process_1.env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
         const result = await (0, captcha_1.validateCaptcha)(token);
@@ -105,7 +101,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
             return;
         }
     }
-    const html = Object.entries(fields).map(([key, value]) => {
+    const html = Object.entries(fields).filter(([key]) => Object.keys(fieldDefinitions).includes(key)).map(([key, value]) => {
         const label = fieldDefinitions[key].label ?? key;
         const realValue = value?.value ?? (value?.toString ? value.toString() : '');
         const cleanValue = (0, sanitize_html_1.default)(realValue);

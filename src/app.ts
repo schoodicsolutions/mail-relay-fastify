@@ -122,10 +122,10 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
         return;
     }
 
-    if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
+    /* if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
         const { code, data } = formInvalidResponse(form.errorMessage);
         res.status(code).send(data);
-    }
+    } */
 
     if (env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
@@ -137,8 +137,10 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
             return;
         }
     }
-
-    const html = Object.entries(fields).map(
+    
+    const html = Object.entries(fields).filter(
+        ([key]) => Object.keys(fieldDefinitions).includes(key)
+    ).map(
         ([key, value]) => {
             const label = fieldDefinitions[key].label ?? key;
             const realValue = value?.value ?? (value?.toString ? value.toString() : '');
