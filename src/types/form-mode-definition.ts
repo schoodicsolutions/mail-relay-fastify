@@ -1,4 +1,4 @@
-import { Form } from "@/config";
+import { Form } from "../config";
 import { SubmissionResponse } from "./submission-response";
 
 export interface FormModeDefinition {

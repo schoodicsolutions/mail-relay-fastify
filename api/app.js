@@ -47,10 +47,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
     if (!form) {
         const response = {
             success: false,
-            data: {
-                message: "The form you're trying to submit wasn't found.",
-                data: [],
-            }
+            message: "The form you're trying to submit wasn't found.",
         };
         res.send(response);
         return;
@@ -71,10 +68,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
     else {
         const response = {
             success: false,
-            data: {
-                message: "Invalid origin.",
-                data: [],
-            }
+            message: "Invalid origin.",
         };
         res.send(response);
         return;
@@ -83,55 +77,53 @@ exports.app.post("/submit/:formId", async (req, res) => {
     form.mode = form.mode && config_1.FormModes.includes(form.mode) ? form.mode : 'generic';
     let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`);
     const fieldKey = preferences?.fieldKey ?? form.fieldKey;
-    const formFields = fieldKey ? body[fieldKey] ?? (0, extract_1.extractFields)(body, fieldKey) : req.body;
-    if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
-        const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
+    const fields = fieldKey ? (body[fieldKey] ?? (0, extract_1.extractFields)(body, fieldKey)) : req.body;
+    const fieldDefinitions = form.fields;
+    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
+        const requiredFields = Object.entries(fieldDefinitions).filter(([, field]) => !!field.required).map(([name]) => name);
         const errors = Object.fromEntries(requiredFields.map(name => [name, strings_1.REQUIRED_FIELD_ERROR]));
-        const response = formInvalidResponse(null, errors);
-        res.send(response);
+        const { code, data } = formInvalidResponse(null, errors);
+        res.status(code).send(data);
         return;
     }
-    const errors = {};
-    for (const [name, field] of Object.entries(form.fields)) {
-        if (field.required && (!formFields[name] || formFields[name].toString().trim() === '')) {
-            errors[name] = "This field is required.";
-        }
-        const { valid, message } = (0, validation_1.validateField)(field, formFields[name]);
-        if (!valid) {
-            errors[name] = message ?? strings_1.INVALID_FIELD_ERROR;
-        }
-    }
+    const errors = (0, validation_1.validateFields)(fields, fieldDefinitions);
     if (Object.keys(errors).length > 0) {
-        const response = formInvalidResponse(null, errors);
-        res.send(response);
+        const { code, data } = formInvalidResponse(null, errors);
+        res.status(code).send(data);
         return;
     }
-    if (Object.keys(formFields).some((name) => !form.fields[name])) {
-        const response = formInvalidResponse(form.errorMessage);
-        res.send(response);
+    if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
+        const { code, data } = formInvalidResponse(form.errorMessage);
+        res.status(code).send(data);
     }
     if (process_1.env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
         const result = await (0, captcha_1.validateCaptcha)(token);
         if (!result.success) {
-            const response = formInvalidResponse();
-            res.send(response);
+            const { code, data } = formInvalidResponse();
+            res.status(code).send(data);
             return;
         }
     }
-    const html = Object.entries(formFields).map(([key, value]) => {
-        const cleanValue = typeof value === 'string' ? (0, sanitize_html_1.default)(value) : value?.toString ? (0, sanitize_html_1.default)(value.toString()) : '<invalid value>';
+    const html = Object.entries(fields).map(([key, value]) => {
+        const label = fieldDefinitions[key].label ?? key;
+        const realValue = value?.value ?? (value?.toString ? value.toString() : '');
+        const cleanValue = (0, sanitize_html_1.default)(realValue);
         if (key === 'message') {
-            return `<br><b>${key[0].toUpperCase() + key.slice(1)}</b>:<br> ${cleanValue}<br>`;
+            return `<br><b>${label}</b>:<br> ${cleanValue}<br>`;
         }
         else {
-            return `<b>${key[0].toUpperCase() + key.slice(1)}</b>: ${cleanValue}<br>`;
+            return `<b>${label}</b>: ${cleanValue}<br>`;
         }
     }).join('\n');
-    const nameFieldKey = Object.entries(form.fields).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
-    const emailFieldKey = Object.entries(form.fields).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
-    const fromName = formFields.name ?? formFields[nameFieldKey] ?? strings_1.GENERIC_FROM_NAME;
-    const replyToAddress = formFields.email ?? formFields[emailFieldKey] ?? process_1.env.SMTP_FROM;
+    const nameFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
+    const emailFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
+    let fromName = fields.name ?? fields[nameFieldKey] ?? strings_1.GENERIC_FROM_NAME;
+    let replyToAddress = fields.email ?? fields[emailFieldKey] ?? process_1.env.SMTP_FROM;
+    if (fromName.value)
+        fromName = fromName.value;
+    if (replyToAddress.value)
+        replyToAddress = replyToAddress.value;
     try {
         await (0, mail_1.sendMailPromise)({
             from: `${fromName} <${process_1.env.SMTP_FROM}>`,
@@ -142,11 +134,13 @@ exports.app.post("/submit/:formId", async (req, res) => {
             },
             html,
         });
-        res.send(formSuccessResponse(form.successMessage));
+        const { code, data } = formSuccessResponse(form.successMessage);
+        res.status(code).send(data);
     }
     catch (e) {
         console.error(e);
-        res.send(formCriticalFailureResponse(form.errorMessage));
+        const { code, data } = formCriticalFailureResponse(form.successMessage);
+        res.status(code).send(data);
     }
 });
 exports.app.get('/', async (_, res) => {

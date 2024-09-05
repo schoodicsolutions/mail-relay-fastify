@@ -10,10 +10,10 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { fetchRemoteConfig, FormModes, getConfig } from "./config";
 import { sendMailPromise } from "./util/mail";
 import { validateCaptcha } from "./util/captcha";
-import { validateField } from "./util/validation";
+import { validateFields } from "./util/validation";
 import { extractFields } from "./util/extract";
 import { FormModeDefinition } from "./types/form-mode-definition";
-import { GENERIC_FROM_NAME, INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "./local/strings";
+import { GENERIC_FROM_NAME, REQUIRED_FIELD_ERROR } from "./local/strings";
 
 interface FormSubmissionResponse {
     success: boolean;
@@ -65,10 +65,7 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
     if (!form) {
         const response = {
             success: false,
-            data: {
-                message: "The form you're trying to submit wasn't found.",
-                data: [],
-            }
+            message: "The form you're trying to submit wasn't found.",
         }
         res.send(response);
         return;
@@ -89,10 +86,7 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
     } else {
         const response = {
             success: false,
-            data: {
-                message: "Invalid origin.",
-                data: [],
-            }
+            message: "Invalid origin.",
         }
         res.send(response);
         return;
@@ -107,38 +101,30 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
 
     const fieldKey = preferences?.fieldKey ?? form.fieldKey;
 
-    const formFields: Record<string, any> = fieldKey ? body[fieldKey] ?? extractFields(body, fieldKey) : req.body;
+    const fields: Record<string, any> = fieldKey ? (body[fieldKey] ?? extractFields(body, fieldKey)) : req.body;
+    const fieldDefinitions = form.fields;
 
-    if (!formFields || typeof formFields !== 'object' || Object.keys(formFields).length === 0) {
-        const requiredFields = Object.entries(form.fields).filter(([, field]) => !!field.required).map(([name]) => name);
+    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
+        const requiredFields = Object.entries(fieldDefinitions).filter(([, field]) => !!field.required).map(([name]) => name);
         const errors = Object.fromEntries(requiredFields.map(name => [name, REQUIRED_FIELD_ERROR]));
 
-        const response = formInvalidResponse(null, errors);
-        res.send(response);
+        const { code, data } = formInvalidResponse(null, errors);
+        res.status(code).send(data);
+
         return;
     }
 
-    const errors: Record<string, string> = {};
-    for (const [name, field] of Object.entries(form.fields)) {
-        if (field.required && (!formFields[name] || formFields[name].toString().trim() === '')) {
-            errors[name] = "This field is required.";
-        }
-
-        const { valid, message } = validateField(field, formFields[name]);
-        if (!valid) {
-            errors[name] = message ?? INVALID_FIELD_ERROR;
-        }
-    }
+    const errors: Record<string, string> = validateFields(fields, fieldDefinitions);
 
     if (Object.keys(errors).length > 0) {
-        const response = formInvalidResponse(null, errors);
-        res.send(response);
+        const { code, data } = formInvalidResponse(null, errors);
+        res.status(code).send(data);
         return;
     }
 
-    if (Object.keys(formFields).some((name) => !form.fields[name])) {
-        const response = formInvalidResponse(form.errorMessage);
-        res.send(response);
+    if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
+        const { code, data } = formInvalidResponse(form.errorMessage);
+        res.status(code).send(data);
     }
 
     if (env.HCAPTCHA_ENABLED === 'true') {
@@ -146,28 +132,33 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
 
         const result = await validateCaptcha(token);
         if (!result.success) {
-            const response = formInvalidResponse();
-            res.send(response);
+            const { code, data }= formInvalidResponse();
+            res.status(code).send(data);
             return;
         }
     }
 
-    const html = Object.entries(formFields).map(
+    const html = Object.entries(fields).map(
         ([key, value]) => {
-            const cleanValue = typeof value === 'string' ? sanitizeHtml(value) : value?.toString ? sanitizeHtml(value.toString()) : '<invalid value>';
+            const label = fieldDefinitions[key].label ?? key;
+            const realValue = value?.value ?? (value?.toString ? value.toString() : '');
+            const cleanValue = sanitizeHtml(realValue);
             if (key === 'message') {
-                return `<br><b>${key[0].toUpperCase() + key.slice(1)}</b>:<br> ${cleanValue}<br>`;
+                return `<br><b>${label}</b>:<br> ${cleanValue}<br>`;
             } else {
-                return `<b>${key[0].toUpperCase() + key.slice(1)}</b>: ${cleanValue}<br>`;
+                return `<b>${label}</b>: ${cleanValue}<br>`;
             }
         }
     ).join('\n');
 
-    const nameFieldKey: string = Object.entries(form.fields).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
-    const emailFieldKey: string = Object.entries(form.fields).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
+    const nameFieldKey: string = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
+    const emailFieldKey: string = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
 
-    const fromName = formFields.name ?? formFields[nameFieldKey] ?? GENERIC_FROM_NAME;
-    const replyToAddress = formFields.email ?? formFields[emailFieldKey] ?? env.SMTP_FROM!;
+    let fromName = fields.name ?? fields[nameFieldKey] ?? GENERIC_FROM_NAME;
+    let replyToAddress = fields.email ?? fields[emailFieldKey] ?? env.SMTP_FROM!;
+
+    if (fromName.value) fromName = fromName.value;
+    if (replyToAddress.value) replyToAddress = replyToAddress.value;
 
     try {
         await sendMailPromise({
@@ -184,10 +175,12 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
             // }] : undefined,
         });
 
-        res.send(formSuccessResponse(form.successMessage));
+        const { code, data } = formSuccessResponse(form.successMessage);
+        res.status(code).send(data);
     } catch (e: unknown) {
         console.error(e);
-        res.send(formCriticalFailureResponse(form.errorMessage));
+        const { code, data } = formCriticalFailureResponse(form.successMessage);
+        res.status(code).send(data);
     }
 });
 
