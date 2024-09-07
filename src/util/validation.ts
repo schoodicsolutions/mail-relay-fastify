@@ -1,4 +1,4 @@
-import { Field } from "../config";
+import { FieldDefinition } from "@/types/form";
 import { INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "../local/strings";
 
 const SPECIAL_TYPE_NAMES = [
@@ -23,7 +23,7 @@ const SPECIAL_TYPES: Record<SpecialTypeName, SpecialType> = {
     },
 } as const;
 
-export const validateField = (fieldDefinition: Field, value: string) => {
+export const validateField = (fieldDefinition: FieldDefinition, value: string) => {
     if (fieldDefinition.maxLength && value.length > fieldDefinition.maxLength) {
         return {valid: false, message: `This field must be at most ${fieldDefinition.maxLength} characters long.`};
     }
@@ -44,7 +44,7 @@ export const validateField = (fieldDefinition: Field, value: string) => {
     return {valid: true};
 }
 
-export const validateFields = function(fields: Record<string, any>, fieldDefinitions: Record<string, Field>) {
+export const validateFields = function(fields: Record<string, any>, fieldDefinitions: Record<string, FieldDefinition>) {
     const errors: Record<string, string> = {};
 
     for (const [name, fieldDefinition] of Object.entries(fieldDefinitions)) {

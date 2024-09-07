@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendMailPromise = void 0;
+exports.sendEmail = exports.nodeMailerWrapper = void 0;
+const strings_1 = require("@/local/strings");
 const nodemailer_1 = require("nodemailer");
 const process_1 = require("process");
-const sendMailPromise = (mailOptions) => {
+const generateHtmlBody_1 = require("./generateHtmlBody");
+const nodeMailerWrapper = (mailOptions) => {
     if (!process_1.env.SMTP_SERVER)
         throw new Error("SMTP_SERVER is not defined");
     if (!process_1.env.SMTP_FROM)
@@ -31,4 +33,27 @@ const sendMailPromise = (mailOptions) => {
         });
     });
 };
-exports.sendMailPromise = sendMailPromise;
+exports.nodeMailerWrapper = nodeMailerWrapper;
+;
+const sendEmail = async ({ fields, form }) => {
+    const { recipient, subject, fields: fieldDefinitions } = form;
+    const html = (0, generateHtmlBody_1.generateHtmlBody)({ fields, form });
+    const nameFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
+    const emailFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
+    let fromName = fields.name ?? fields[nameFieldKey] ?? strings_1.GENERIC_FROM_NAME;
+    let replyToAddress = fields.email ?? fields[emailFieldKey] ?? process_1.env.SMTP_FROM;
+    if (fromName.value)
+        fromName = fromName.value;
+    if (replyToAddress.value)
+        replyToAddress = replyToAddress.value;
+    await (0, exports.nodeMailerWrapper)({
+        from: `${fromName} <${process_1.env.SMTP_FROM}>`,
+        to: recipient ?? process_1.env.SMTP_RCPT,
+        subject: subject ?? process_1.env.SMTP_SUBJECT,
+        headers: {
+            'Reply-To': `${fromName} <${replyToAddress}>`,
+        },
+        html,
+    });
+};
+exports.sendEmail = sendEmail;

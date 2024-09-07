@@ -1,7 +1,7 @@
 import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION } from "../local/strings";
 import { SubmissionResponse } from "../types/submission-response";
 
-interface GenericSubmissionResponse extends SubmissionResponse {
+export interface GenericSubmissionResponse extends SubmissionResponse {
     data: {
         success: boolean;
         message: string;

@@ -1,28 +1,18 @@
 import Fastify, { FastifyReply, FastifyRequest } from "fastify";
 import multipart from '@fastify/multipart';
 
-import sanitizeHtml from "sanitize-html";
-
 import { env } from "process";
 import { kv } from "@vercel/kv"
 import { Ratelimit } from '@upstash/ratelimit';
 
-import { fetchRemoteConfig, FormModes, getConfig } from "./config";
-import { sendMailPromise } from "./util/mail";
+import { fetchRemoteConfig, getConfig } from "./config";
+import { sendEmail } from "./util/mail";
 import { validateCaptcha } from "./util/captcha";
 import { validateFields } from "./util/validation";
 import { extractFields } from "./util/extract";
-import { FormModeDefinition } from "./types/form-mode-definition";
-import { GENERIC_FROM_NAME, REQUIRED_FIELD_ERROR } from "./local/strings";
-
-interface FormSubmissionResponse {
-    success: boolean;
-    data: {
-        message: string;
-        errors?: Record<string, string>;
-        data?: any[];
-    };
-}
+import { REQUIRED_FIELD_ERROR } from "./local/strings";
+import { loadModeDefinition } from "./util/loadModeDefinition";
+import { GenericSubmissionResponse } from "./modes/generic";
 
 const ratelimit = new Ratelimit({
     redis: kv,
@@ -38,14 +28,14 @@ app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) =>
     );
 
     if (!success) {
-        const response: FormSubmissionResponse = {
-            success: false,
+        const { code, data }: GenericSubmissionResponse = {
+            code: 429,
             data: {
-                message: "Rate limit exceeded. Please try again later.",
-                data: [],
+                success: false,
+                message: "Rate limit exceeded.",
             }
         };
-        reply.send(response);
+        reply.status(code).send(data);
         return;
     }
 });
@@ -96,8 +86,7 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
       Object.keys(req.body).map((key) => [key, req.body[key].value])
     )
 
-    form.mode = form.mode && FormModes.includes(form.mode) ? form.mode : 'generic';
-    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`) as FormModeDefinition;
+    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = loadModeDefinition(form.mode);
 
     const fieldKey = preferences?.fieldKey ?? form.fieldKey;
 
@@ -122,11 +111,6 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
         return;
     }
 
-    /* if (Object.keys(fields).some((name) => !fieldDefinitions[name])) {
-        const { code, data } = formInvalidResponse(form.errorMessage);
-        res.status(code).send(data);
-    } */
-
     if (env.HCAPTCHA_ENABLED === 'true') {
         const { "h-captcha-response": token } = req.body;
 
@@ -138,50 +122,13 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
         }
     }
     
-    const html = Object.entries(fields).filter(
-        ([key]) => Object.keys(fieldDefinitions).includes(key)
-    ).map(
-        ([key, value]) => {
-            const label = fieldDefinitions[key].label ?? key;
-            const realValue = value?.value ?? (value?.toString ? value.toString() : '');
-            const cleanValue = sanitizeHtml(realValue);
-            if (key === 'message') {
-                return `<br><b>${label}</b>:<br> ${cleanValue}<br>`;
-            } else {
-                return `<b>${label}</b>: ${cleanValue}<br>`;
-            }
-        }
-    ).join('\n');
-
-    const nameFieldKey: string = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
-    const emailFieldKey: string = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
-
-    let fromName = fields.name ?? fields[nameFieldKey] ?? GENERIC_FROM_NAME;
-    let replyToAddress = fields.email ?? fields[emailFieldKey] ?? env.SMTP_FROM!;
-
-    if (fromName.value) fromName = fromName.value;
-    if (replyToAddress.value) replyToAddress = replyToAddress.value;
-
     try {
-        await sendMailPromise({
-            from: `${fromName} <${env.SMTP_FROM}>`,
-            to: form.recipient ?? env.SMTP_RCPT,
-            subject: form.subject ?? env.SMTP_SUBJECT,
-            headers: {
-                'Reply-To': `${fromName} <${replyToAddress}>`,
-            },
-            html,
-            // attachments: file ? [{
-            //     filename: file,
-            //      content: data.file,
-            // }] : undefined,
-        });
-
-        const { code, data } = formSuccessResponse(form.successMessage);
+        await sendEmail({ fields, form });
+        const { code, data } = formSuccessResponse(form.successMessage, form);
         res.status(code).send(data);
     } catch (e: unknown) {
         console.error(e);
-        const { code, data } = formCriticalFailureResponse(form.successMessage);
+        const { code, data } = formCriticalFailureResponse(form.successMessage, form);
         res.status(code).send(data);
     }
 });

@@ -1,4 +1,4 @@
-import { Form } from "@/config";
+import { Form } from "../types/form";
 import { FAILED_SUBMISSION, SUCCESSFUL_SUBMISSION, VALIDATION_ERROR } from "../local/strings";
 import { SubmissionResponse } from "../types/submission-response";
 

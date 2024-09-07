@@ -1,11 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fetchRemoteConfig = exports.FormModes = void 0;
+exports.fetchRemoteConfig = void 0;
 exports.getConfig = getConfig;
 const process_1 = require("process");
 const blob_1 = require("@vercel/blob");
 const node_scp_1 = require("node-scp");
-exports.FormModes = ['generic', 'elementor-pro', 'contact-form-7'];
 let config;
 function getConfig() {
     return config;

@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.app = void 0;
 const fastify_1 = __importDefault(require("fastify"));
 const multipart_1 = __importDefault(require("@fastify/multipart"));
-const sanitize_html_1 = __importDefault(require("sanitize-html"));
 const process_1 = require("process");
 const kv_1 = require("@vercel/kv");
 const ratelimit_1 = require("@upstash/ratelimit");
@@ -16,6 +15,7 @@ const captcha_1 = require("./util/captcha");
 const validation_1 = require("./util/validation");
 const extract_1 = require("./util/extract");
 const strings_1 = require("./local/strings");
+const loadModeDefinition_1 = require("./util/loadModeDefinition");
 const ratelimit = new ratelimit_1.Ratelimit({
     redis: kv_1.kv,
     limiter: ratelimit_1.Ratelimit.slidingWindow(5, '10 s')
@@ -25,14 +25,14 @@ exports.app.register(multipart_1.default, { attachFieldsToBody: true });
 exports.app.addHook("onRequest", async (request, reply) => {
     const { success } = await ratelimit.limit(request.ip + (request.headers['origin'] ?? 'no-origin'));
     if (!success) {
-        const response = {
-            success: false,
+        const { code, data } = {
+            code: 429,
             data: {
-                message: "Rate limit exceeded. Please try again later.",
-                data: [],
+                success: false,
+                message: "Rate limit exceeded.",
             }
         };
-        reply.send(response);
+        reply.status(code).send(data);
         return;
     }
 });
@@ -74,8 +74,7 @@ exports.app.post("/submit/:formId", async (req, res) => {
         return;
     }
     const body = Object.fromEntries(Object.keys(req.body).map((key) => [key, req.body[key].value]));
-    form.mode = form.mode && config_1.FormModes.includes(form.mode) ? form.mode : 'generic';
-    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = require(`./modes/${form.mode}`);
+    let { preferences, formInvalidResponse, formSuccessResponse, formCriticalFailureResponse } = (0, loadModeDefinition_1.loadModeDefinition)(form.mode);
     const fieldKey = preferences?.fieldKey ?? form.fieldKey;
     const fields = fieldKey ? (body[fieldKey] ?? (0, extract_1.extractFields)(body, fieldKey)) : req.body;
     const fieldDefinitions = form.fields;
@@ -101,35 +100,8 @@ exports.app.post("/submit/:formId", async (req, res) => {
             return;
         }
     }
-    const html = Object.entries(fields).filter(([key]) => Object.keys(fieldDefinitions).includes(key)).map(([key, value]) => {
-        const label = fieldDefinitions[key].label ?? key;
-        const realValue = value?.value ?? (value?.toString ? value.toString() : '');
-        const cleanValue = (0, sanitize_html_1.default)(realValue);
-        if (key === 'message') {
-            return `<br><b>${label}</b>:<br> ${cleanValue}<br>`;
-        }
-        else {
-            return `<b>${label}</b>: ${cleanValue}<br>`;
-        }
-    }).join('\n');
-    const nameFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'name')?.[0] ?? 'name';
-    const emailFieldKey = Object.entries(fieldDefinitions).find(([, { as }]) => as === 'email')?.[0] ?? 'email';
-    let fromName = fields.name ?? fields[nameFieldKey] ?? strings_1.GENERIC_FROM_NAME;
-    let replyToAddress = fields.email ?? fields[emailFieldKey] ?? process_1.env.SMTP_FROM;
-    if (fromName.value)
-        fromName = fromName.value;
-    if (replyToAddress.value)
-        replyToAddress = replyToAddress.value;
     try {
-        await (0, mail_1.sendMailPromise)({
-            from: `${fromName} <${process_1.env.SMTP_FROM}>`,
-            to: form.recipient ?? process_1.env.SMTP_RCPT,
-            subject: form.subject ?? process_1.env.SMTP_SUBJECT,
-            headers: {
-                'Reply-To': `${fromName} <${replyToAddress}>`,
-            },
-            html,
-        });
+        await (0, mail_1.sendEmail)({ fields, form });
         const { code, data } = formSuccessResponse(form.successMessage, form);
         res.status(code).send(data);
     }
