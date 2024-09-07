@@ -23,7 +23,7 @@ export interface Form {
     successMessage: string;
     errorMessage: string;
     fieldKey?: string;
-    formId?: string;
+    formId?: string | number;
 }
 
 export interface Config {

@@ -11,17 +11,20 @@ const formInvalidResponse = (message, errors) => ({
     }
 });
 exports.formInvalidResponse = formInvalidResponse;
-const formSuccessResponse = (message) => ({
+const formSuccessResponse = (message, form) => ({
     code: 200,
     data: {
+        contact_form_id: form?.formId,
         status: "mail_sent",
         message: message ?? strings_1.SUCCESSFUL_SUBMISSION,
+        invalid_fields: [],
     },
 });
 exports.formSuccessResponse = formSuccessResponse;
-const formCriticalFailureResponse = (message) => ({
+const formCriticalFailureResponse = (message, form) => ({
     code: 200,
     data: {
+        contact_form_id: form?.formId,
         status: "mail_failed",
         message: message ?? strings_1.FAILED_SUBMISSION,
     },

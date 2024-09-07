@@ -130,12 +130,12 @@ exports.app.post("/submit/:formId", async (req, res) => {
             },
             html,
         });
-        const { code, data } = formSuccessResponse(form.successMessage);
+        const { code, data } = formSuccessResponse(form.successMessage, form);
         res.status(code).send(data);
     }
     catch (e) {
         console.error(e);
-        const { code, data } = formCriticalFailureResponse(form.successMessage);
+        const { code, data } = formCriticalFailureResponse(form.successMessage, form);
         res.status(code).send(data);
     }
 });
