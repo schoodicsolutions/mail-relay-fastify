@@ -133,6 +133,11 @@ app.post<{ Params: { formId: string }, Body: Record<string, any> }>("/submit/:fo
     }
 });
 
+app.get('/empty-response', async (_, res) => {
+    res.header('Content-Type', 'application/json');
+    return res.send('');
+});
+
 app.get('/', async (_, res) => {
     return res.type('text/html').send('Schoodic Mailer / powered by Fastify')
 })

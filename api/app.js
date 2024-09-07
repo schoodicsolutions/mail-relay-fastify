@@ -111,6 +111,10 @@ exports.app.post("/submit/:formId", async (req, res) => {
         res.status(code).send(data);
     }
 });
+exports.app.get('/empty-response', async (_, res) => {
+    res.header('Content-Type', 'application/json');
+    return res.send('');
+});
 exports.app.get('/', async (_, res) => {
     return res.type('text/html').send('Schoodic Mailer / powered by Fastify');
 });
