@@ -1,4 +1,4 @@
-import { FieldDefinition } from "@/types/form";
+import { FieldDefinition } from "../types/form";
 import { INVALID_FIELD_ERROR, REQUIRED_FIELD_ERROR } from "../local/strings";
 
 const SPECIAL_TYPE_NAMES = [

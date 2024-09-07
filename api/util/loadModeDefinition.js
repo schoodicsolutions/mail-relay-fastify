@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.loadModeDefinition = void 0;
-const form_1 = require("@/types/form");
+const form_1 = require("../types/form");
 const loadModeDefinition = (mode) => {
     mode = mode && form_1.FormModes.includes(mode) ? mode : 'generic';
     let modeDefinition = require(`./modes/${mode}`);

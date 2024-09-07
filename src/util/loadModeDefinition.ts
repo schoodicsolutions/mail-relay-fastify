@@ -1,5 +1,5 @@
-import { FormMode, FormModes } from "@/types/form";
-import { FormModeDefinition } from "@/types/form-mode-definition";
+import { FormMode, FormModes } from "../types/form";
+import { FormModeDefinition } from "../types/form-mode-definition";
 
 export const loadModeDefinition = (mode?: FormMode): FormModeDefinition => {
     mode = mode && FormModes.includes(mode) ? mode : 'generic';

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendEmail = exports.nodeMailerWrapper = void 0;
-const strings_1 = require("@/local/strings");
+const strings_1 = require("../local/strings");
 const nodemailer_1 = require("nodemailer");
 const process_1 = require("process");
 const generateHtmlBody_1 = require("./generateHtmlBody");

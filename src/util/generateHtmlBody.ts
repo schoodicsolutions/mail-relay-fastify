@@ -1,4 +1,4 @@
-import { Form } from "@/types/form";
+import { Form } from "../types/form";
 import sanitizeHtml from "sanitize-html";
 
 export interface GenerateHtmlBodyOptions {

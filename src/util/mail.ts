@@ -1,5 +1,5 @@
-import { GENERIC_FROM_NAME } from "@/local/strings";
-import { Form } from "@/types/form";
+import { GENERIC_FROM_NAME } from "../local/strings";
+import { Form } from "../types/form";
 import { createTransport } from "nodemailer";
 import SMTPTransport from "nodemailer/lib/smtp-transport";
 import { env } from "process";
